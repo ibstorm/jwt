@@ -5,71 +5,100 @@ on:
     branches:
       - main
     tags:
-      - "*"  # Triggers workflow when a tag is pushed
+      - "*"  # Triggers workflow when a tag is pushed (e.g., v1.0.0, release-20250607)
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
-      contents: read   # Only need read access to checkout code
-      packages: write  # Need write access to push Docker image
+      contents: read   # Needed to checkout the code
+      packages: write  # Needed to push the Docker image to Docker Hub (or GitHub Packages)
 
+    # Define outputs from this job that other jobs might need
     outputs:
       short_sha: ${{ steps.get_sha.outputs.SHORT_SHA }} # Expose SHORT_SHA as a job output
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4 # Using v4 for actions/checkout, generally recommended to use the latest stable version
+        uses: actions/checkout@v4 # Recommended to use the latest stable version
 
       - name: Get short commit SHA
         id: get_sha # Assign an ID to this step to access its outputs
         run: |
+          # Get the first 7 characters of the commit SHA
           SHORT_SHA=$(git rev-parse --short HEAD)
-          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_OUTPUT # Correct way to set step outputs
+          echo "Debug: Short SHA is $SHORT_SHA"
+          # Set SHORT_SHA as an output for this step.
+          # This output can then be accessed by subsequent steps in this job
+          # and also exposed as a job output (as defined in 'outputs:' above).
+          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_OUTPUT
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3 # Using v3 for docker/login-action
+        uses: docker/login-action@v3 # Latest stable version
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3 # Using v3 for docker/setup-buildx-action
+        uses: docker/setup-buildx-action@v3 # Latest stable version
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5 # Using v5 for docker/build-push-action
+        uses: docker/build-push-action@v5 # Latest stable version
         with:
-          context: .
+          context: . # Build context is the root of the repository
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/jwt:${{ env.SHORT_SHA }} # env.SHORT_SHA from previous step is fine here
+          # Construct the Docker image tag using the DOCKER_USERNAME secret
+          # and the SHORT_SHA obtained from the 'get_sha' step's output.
+          tags: ${{ secrets.DOCKER_USERNAME }}/jwt:${{ steps.get_sha.outputs.SHORT_SHA }}
+
+      # Optional: Logout from Docker Hub (good practice)
+      - name: Log out from Docker Hub
+        run: docker logout
 
   update-gitops:
     runs-on: ubuntu-latest
     needs: build-and-push # This job depends on the successful completion of the build-and-push job
     permissions:
-      contents: write # Crucial: Grant write permission to push changes to the repository
+      contents: write # Crucial: Grant write permission to push changes back to the repository
 
     steps:
       - name: Checkout GitOps repository
-        uses: actions/checkout@v4 # Using v4 for actions/checkout
+        uses: actions/checkout@v4 # Use the same latest stable version for consistency
+        # The GITHUB_TOKEN is automatically provided and has permissions based on the 'permissions' key above.
+        # No need to explicitly pass 'token: ${{ secrets.GITHUB_TOKEN }}' here.
 
       - name: Update image tag in deployment.yaml
         run: |
-          # Access the SHA from the previous job's output
+          # Access the SHA from the 'build-and-push' job's output.
+          # The syntax is needs.<job_id>.outputs.<output_name>
           IMAGE_SHA="${{ needs.build-and-push.outputs.short_sha }}"
+          echo "Debug: Updating deployment.yaml with image tag: $IMAGE_SHA"
 
           # Navigate to your GitOps folder
+          # Make sure this path ('GitOps') matches your actual repository structure
           cd GitOps
 
-          # Assuming your deployment.yaml has an image tag like "image: your-repo/your-image:old-tag"
-          # This 'sed' command will replace the image tag.
+          # Use 'sed' to find and replace the image tag in deployment.yaml.
+          # This regex assumes your image line looks like:
+          # "image: your_docker_username/jwt:some-existing-tag"
+          # Adjust the regex if your image name or path is different.
           sed -i "s|image: ${{ secrets.DOCKER_USERNAME }}/jwt:.*|image: ${{ secrets.DOCKER_USERNAME }}/jwt:$IMAGE_SHA|g" deployment.yaml
 
-          # Commit the changes
+          # Verify the change (optional, for debugging)
+          echo "--- Content of deployment.yaml after sed ---"
+          cat deployment.yaml
+          echo "-------------------------------------------"
+
+          # Configure Git user for the commit
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Stage the modified deployment.yaml file
           git add deployment.yaml
+
+          # Commit the changes. The commit message includes the new SHA for clarity.
           git commit -m "Update jwt image to $IMAGE_SHA"
 
-          # Push the changes back to the repository using the GITHUB_TOKEN
+          # Push the changes back to the repository.
+          # This push will be authenticated by the GITHUB_TOKEN which has 'contents: write' permission.
           git push
