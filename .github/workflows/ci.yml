@@ -42,7 +42,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/node_test_app:${{ env.TAG_NAME }}
+          tags: ${{ secrets.DOCKER_USERNAME }}/jwt:${{ env.TAG_NAME }}
 
       # Optional: Logout from Docker Hub
       - name: Log out from Docker Hub
