@@ -44,4 +44,4 @@ spec:
     - port: 80          # Internal cluster port
       targetPort: 3000    # Container port
       protocol: TCP
-  loadBalancerIP: 192.168.2.201  # Ensure this IP is in MetalLB's range
+  loadBalancerIP: 192.168.2.203  # Ensure this IP is in MetalLB's range
