@@ -1,0 +1,47 @@
+---
+# 1) Create the Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jwt
+
+---
+# 2) Create the Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jwt-deployment
+  namespace: jwt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jwt
+  template:
+    metadata:
+      labels:
+        app: jwt
+    spec:
+      containers:
+        - name: jwt-container
+          # Replace with your container image that listens on port 80
+          image: bahajian/jwt:latest
+          ports:
+            - containerPort: 80
+
+---
+# 3) Create the Service (LoadBalancer)
+apiVersion: v1
+kind: Service
+metadata:
+  name: jwt-service
+  namespace: jwt
+spec:
+  selector:
+    app: jwt
+  type: LoadBalancer
+  ports:
+    - port: 80          # Internal cluster port
+      targetPort: 3000    # Container port
+      protocol: TCP
+  loadBalancerIP: 192.168.2.201  # Ensure this IP is in MetalLB's range
