@@ -1,0 +1,5 @@
+.ds_store
+no-upload/
+logs
+*.log
+node_modules/

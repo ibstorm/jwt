@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JWT Decoder</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #0056b3;
+            text-align: center;
+        }
+        textarea {
+            width: 100%;
+            height: 150px;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.2s ease;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        pre {
+            background-color: #eee;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: monospace;
+            font-size: 14px;
+            color: #000;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>JWT Decoder</h1>
+
+        <p>Paste either a single JWT (e.g., AccessToken or IdToken) OR the full JSON response from a tool like `curl` (even if it has extra outer quotes). **New: Also handles your specific concatenated token format.**</p>
+        <label for="jwtInput">Paste your token(s) here:</label><br>
+        <textarea id="jwtInput" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... OR the full JSON response"></textarea><br>
+
+        <button onclick="decodeToken()">Decode JWT</button>
+
+        <h2>Decoded Access Token:</h2>
+        <pre id="decodedAccessTokenOutput">Results will appear here.</pre>
+
+        <h2>Decoded ID Token:</h2>
+        <pre id="decodedIdTokenOutput">Results will appear here.</pre>
+
+        <h2>Decoded Refresh Token (if applicable):</h2>
+        <pre id="decodedRefreshTokenOutput">Refresh Tokens are often encrypted and cannot be decoded like JWTs. This will only show if it's a decodable JWT, otherwise it will indicate 'Opaque/Encrypted'.</pre>
+    </div>
+
+    <script>
+        // Helper to format Unix timestamps
+        function formatTimestampsInPayload(payload) {
+            const readablePayload = { ...payload };
+            const timestampKeys = ['exp', 'iat', 'auth_time'];
+
+            for (const key of timestampKeys) {
+                if (readablePayload[key] !== undefined && typeof readablePayload[key] === 'number') {
+                    try {
+                        const date = new Date(readablePayload[key] * 1000); // JS Date expects milliseconds
+                        readablePayload[`${key}_readable`] = date.toLocaleString(); // Human-readable local time
+                    } catch (e) {
+                        // Ignore if conversion fails
+                    }
+                }
+            }
+            return readablePayload;
+        }
+
+        // Function to send a single token to the backend and display the result
+        async function sendAndDisplayToken(token, outputElementId) {
+            const outputElement = document.getElementById(outputElementId);
+            outputElement.textContent = 'Decoding...';
+            outputElement.className = ''; // Clear any previous error classes
+
+            console.log(`[sendAndDisplayToken] Attempting to send token to backend for ${outputElementId}:`, token.substring(0, Math.min(token.length, 100)) + '...');
+
+            if (!token || typeof token !== 'string') {
+                outputElement.textContent = 'N/A: Not a valid token string provided.';
+                console.error(`[sendAndDisplayToken] Invalid token type or empty for ${outputElementId}.`);
+                return;
+            }
+
+            // A very basic check to see if it even looks like a JWT
+            if (!token.includes('.') || token.split('.').length !== 3) {
+                 // Refresh tokens often aren't JWTs, so handle them separately
+                if (outputElementId === 'decodedRefreshTokenOutput') {
+                    outputElement.textContent = `Opaque/Encrypted (Refresh Token):\n${token.substring(0, Math.min(token.length, 50))}...`;
+                    console.log(`[sendAndDisplayToken] Refresh Token identified as opaque for ${outputElementId}.`);
+                    return;
+                }
+                outputElement.className = 'error';
+                outputElement.textContent = `Error: Input for ${outputElementId} does not look like a JWT (missing dots or incorrect segments).`;
+                console.error(`[sendAndDisplayToken] Token for ${outputElementId} does not look like a JWT:`, token);
+                return;
+            }
+
+            try {
+                // Send the token to the Node.js backend
+                const response = await fetch('/decode-jwt', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ token: token })
+                });
+
+                const data = await response.json();
+                console.log(`[sendAndDisplayToken] Backend response for ${outputElementId}:`, data);
+
+                if (response.ok) {
+                    if (data.payload) {
+                        const formattedPayload = formatTimestampsInPayload(data.payload);
+                        outputElement.textContent = JSON.stringify({
+                            header: data.header,
+                            payload: formattedPayload
+                        }, null, 2); // Pretty print JSON
+                        console.log(`[sendAndDisplayToken] Successfully decoded and displayed for ${outputElementId}.`);
+                    } else {
+                        outputElement.className = 'error';
+                        outputElement.textContent = JSON.stringify(data, null, 2);
+                        console.error(`[sendAndDisplayToken] Backend returned OK status but no payload for ${outputElementId}:`, data);
+                    }
+                } else {
+                    // Backend returned an error status (e.g., 400)
+                    outputElement.className = 'error';
+                    outputElement.textContent = `Error from server (${response.status}): ${data.error || response.statusText}`;
+                    console.error(`[sendAndDisplayToken] Server error for ${outputElementId}: HTTP ${response.status}, Error: ${data.error || response.statusText}`);
+                }
+
+            } catch (error) {
+                console.error(`[sendAndDisplayToken] Network/fetch error for ${outputElementId}:`, error);
+                outputElement.className = 'error';
+                outputElement.textContent = `An network/fetch error occurred: ${error.message}`;
+            }
+        }
+
+        async function decodeToken() {
+            let rawInput = document.getElementById('jwtInput').value.trim();
+
+            const accessTokenOutput = document.getElementById('decodedAccessTokenOutput');
+            const idTokenOutput = document.getElementById('decodedIdTokenOutput');
+            const refreshTokenOutput = document.getElementById('decodedRefreshTokenOutput');
+
+            // Clear previous outputs and error messages
+            accessTokenOutput.textContent = 'Awaiting input...';
+            idTokenOutput.textContent = 'Awaiting input...';
+            refreshTokenOutput.textContent = 'Awaiting input...';
+            accessTokenOutput.className = '';
+            idTokenOutput.className = '';
+            refreshTokenOutput.className = '';
+
+            console.log(`[decodeToken] Raw Input (length ${rawInput.length}):`, rawInput.substring(0, Math.min(rawInput.length, 200)) + (rawInput.length > 200 ? '...' : ''));
+
+
+            if (!rawInput) {
+                accessTokenOutput.textContent = 'Please enter a JWT token or a full Cognito response.';
+                idTokenOutput.textContent = '';
+                refreshTokenOutput.textContent = '';
+                console.warn('[decodeToken] No input provided.');
+                return;
+            }
+
+            let tokens = {}; // Object to hold extracted tokens
+            let parsedAsStandardJson = false; // Flag to indicate if parsed as a *valid* JSON object
+
+            // --- Attempt 1: Handle outer quotes first, then try standard JSON.parse ---
+            let potentialJsonString = rawInput;
+            const startsWithQuote = rawInput.startsWith('"');
+            const endsWithQuote = rawInput.endsWith('"');
+            console.log(`[decodeToken] Input starts with quote: ${startsWithQuote}, ends with quote: ${endsWithQuote}`);
+
+            if (startsWithQuote && endsWithQuote) {
+                // If it starts and ends with a quote, assume it's a JSON string wrapped in quotes
+                potentialJsonString = rawInput.substring(1, rawInput.length - 1);
+                console.log('[decodeToken] Removed outer quotes. New string to parse (first 100 chars):', potentialJsonString.substring(0, Math.min(potentialJsonString.length, 100)) + '...');
+            } else {
+                console.log('[decodeToken] No outer quotes detected or invalid quote pairing. Attempting to parse original raw input as standard JSON.');
+            }
+
+            try {
+                // Try to parse the (potentially unquoted) input as a standard JSON object
+                const jsonInput = JSON.parse(potentialJsonString);
+                console.log('[decodeToken] JSON.parse succeeded (Attempt 1). Parsed object:', jsonInput);
+
+                // Extract tokens if they exist in the JSON structure
+                if (jsonInput.AccessToken) {
+                    tokens.AccessToken = jsonInput.AccessToken;
+                    console.log('[decodeToken] AccessToken found in standard JSON.');
+                }
+                if (jsonInput.IdToken) {
+                    tokens.IdToken = jsonInput.IdToken;
+                    console.log('[decodeToken] IdToken found in standard JSON.');
+                }
+                if (jsonInput.RefreshToken) {
+                    tokens.RefreshToken = jsonInput.RefreshToken;
+                    console.log('[decodeToken] RefreshToken found in standard JSON.');
+                }
+                parsedAsStandardJson = true;
+
+            } catch (e) {
+                // If standard JSON.parse fails (for example, if it's the concatenated string)
+                console.warn(`[decodeToken] JSON.parse failed (Attempt 1). Error: "${e.message}".`);
+                console.log('[decodeToken] Attempting to parse as your specific concatenated string format...');
+
+                // --- Attempt 2: Highly specific parsing for the provided concatenated format ---
+                // Format: ACCESS_TOKEN_VALUE,"ExpiresIn":3600,"IdToken":"ID_TOKEN_VALUE","RefreshToken":"REFRESH_TOKEN_VALUE"
+                // The key is that AccessToken is NOT quoted, but IdToken and RefreshToken values ARE quoted.
+
+                const expiresInDelimiter = '","ExpiresIn":'; // Using a quoted comma to be precise
+                const idTokenDelimiter = ',"IdToken":"';
+                const refreshTokenDelimiter = '","RefreshToken":"';
+
+                let remainingInput = rawInput;
+
+                // 1. Extract Access Token
+                const accessTokenEndIndex = remainingInput.indexOf(expiresInDelimiter);
+                if (accessTokenEndIndex !== -1) {
+                    tokens.AccessToken = remainingInput.substring(0, accessTokenEndIndex).trim();
+                    remainingInput = remainingInput.substring(accessTokenEndIndex + expiresInDelimiter.length);
+                    // Also need to skip the numerical ExpiresIn value
+                    const nextQuoteIndex = remainingInput.indexOf(',"IdToken":"'); // Find start of IdToken key
+                    if (nextQuoteIndex !== -1) {
+                        // The number is between the start of remainingInput and nextQuoteIndex
+                        // No need to store ExpiresIn explicitly, just skip it.
+                        remainingInput = remainingInput.substring(nextQuoteIndex); // Start from ,"IdToken":"
+                    } else {
+                        console.warn('[decodeToken] Could not find IdToken delimiter after ExpiresIn.');
+                        tokens.AccessToken = null; // Invalidate if subsequent parts are missing
+                    }
+                    console.log('[decodeToken] Extracted potential AccessToken.');
+                } else {
+                    console.warn('[decodeToken] Could not find AccessToken end delimiter (,"ExpiresIn":).');
+                }
+
+
+                // 2. Extract Id Token
+                const idTokenStartIndex = remainingInput.indexOf(idTokenDelimiter);
+                if (idTokenStartIndex !== -1) {
+                    remainingInput = remainingInput.substring(idTokenStartIndex + idTokenDelimiter.length);
+                    const idTokenEndIndex = remainingInput.indexOf('","RefreshToken":"'); // End of IdToken, start of RefreshToken
+                    if (idTokenEndIndex !== -1) {
+                        tokens.IdToken = remainingInput.substring(0, idTokenEndIndex).trim();
+                        remainingInput = remainingInput.substring(idTokenEndIndex + '","RefreshToken":"'.length);
+                        console.log('[decodeToken] Extracted potential IdToken.');
+                    } else {
+                        // If RefreshToken delimiter not found, check for a final quote (last token scenario)
+                        const finalQuoteIndex = remainingInput.lastIndexOf('"');
+                        if (finalQuoteIndex !== -1) {
+                             tokens.IdToken = remainingInput.substring(0, finalQuoteIndex).trim();
+                             console.log('[decodeToken] Extracted IdToken as last token.');
+                        } else {
+                            console.warn('[decodeToken] Could not find IdToken end delimiter or final quote.');
+                        }
+                    }
+                } else {
+                    console.warn('[decodeToken] Could not find IdToken start delimiter (,"IdToken":").');
+                }
+
+
+                // 3. Extract Refresh Token
+                // The remainingInput at this point should just be the RefreshToken value plus a trailing quote
+                if (remainingInput) {
+                    const refreshTokenEndIndex = remainingInput.lastIndexOf('"'); // Assuming it's the last value and ends with a quote
+                    if (refreshTokenEndIndex !== -1) {
+                        tokens.RefreshToken = remainingInput.substring(0, refreshTokenEndIndex).trim();
+                        console.log('[decodeToken] Extracted potential RefreshToken.');
+                    } else {
+                        console.warn('[decodeToken] Could not find RefreshToken end quote.');
+                        // If no quote, maybe it's an unquoted opaque token?
+                        tokens.RefreshToken = remainingInput.trim();
+                    }
+                }
+
+                // If no specific tokens were extracted by this custom logic, and it wasn't valid JSON,
+                // then fall back to treating the entire input as a single raw token.
+                if (!tokens.AccessToken && !tokens.IdToken && !tokens.RefreshToken) {
+                    tokens.SingleToken = rawInput;
+                    console.log('[decodeToken] No specific tokens extracted by custom logic. Treating entire input as a single raw token.');
+                }
+            }
+
+            // --- Final check on extracted tokens before sending to backend ---
+            console.log('[decodeToken] Final tokens object state:', tokens);
+            console.log(`[decodeToken] Parsed as standard JSON: ${parsedAsStandardJson}`);
+            // ---------------------------------------------------------------
+
+            // Handle Access Token
+            if (tokens.AccessToken) {
+                console.log('[decodeToken] Condition met: tokens.AccessToken exists. Sending to backend.');
+                await sendAndDisplayToken(tokens.AccessToken, 'decodedAccessTokenOutput');
+            } else if (!parsedAsStandardJson && tokens.SingleToken && tokens.SingleToken.includes('.') && tokens.SingleToken.split('.').length === 3) {
+                // This condition now specifically caters to a single *valid* JWT, not the concatenated mess
+                console.log('[decodeToken] Condition met: Input is a single JWT (not standard JSON, not concatenated) and looks like an AccessToken. Sending to backend.');
+                await sendAndDisplayToken(tokens.SingleToken, 'decodedAccessTokenOutput');
+                idTokenOutput.textContent = 'N/A (single token input)';
+                refreshTokenOutput.textContent = 'N/A (single token input)';
+            } else {
+                accessTokenOutput.textContent = 'No Access Token found or input is not a valid single JWT.';
+                console.log('[decodeToken] Condition NOT met for Access Token: No AccessToken property in JSON, no tokens extracted by custom logic, and not a single valid JWT.');
+            }
+
+            // Handle ID Token
+            if (tokens.IdToken) {
+                console.log('[decodeToken] Condition met: IdToken exists. Sending to backend.');
+                await sendAndDisplayToken(tokens.IdToken, 'decodedIdTokenOutput');
+            } else if (parsedAsStandardJson) { // If it was standard JSON but no IdToken
+                idTokenOutput.textContent = 'No Id Token found in standard JSON response.';
+                console.log('[decodeToken] Condition NOT met for Id Token: Parsed as standard JSON, but no IdToken property found.');
+            } else { // If it was not standard JSON, and IdToken wasn't extracted by custom logic
+                idTokenOutput.textContent = 'No Id Token found in custom format.';
+                console.log('[decodeToken] Condition NOT met for Id Token: Not standard JSON, or IdToken not extracted by custom logic.');
+            }
+
+            // Handle Refresh Token
+            if (tokens.RefreshToken) {
+                console.log('[decodeToken] Condition met: RefreshToken exists. Sending to backend.');
+                await sendAndDisplayToken(tokens.RefreshToken, 'decodedRefreshTokenOutput');
+            } else if (parsedAsStandardJson) { // If it was standard JSON but no RefreshToken
+                refreshTokenOutput.textContent = 'No Refresh Token found in standard JSON response.';
+                console.log('[decodeToken] Condition NOT met for Refresh Token: Parsed as standard JSON, but no RefreshToken property found.');
+            } else { // If it was not standard JSON, and RefreshToken wasn't extracted by custom logic
+                refreshTokenOutput.textContent = 'No Refresh Token found in custom format.';
+                console.log('[decodeToken] Condition NOT met for Refresh Token: Not standard JSON, or RefreshToken not extracted by custom logic.');
+            }
+        }
+    </script>
+</body>
+</html>
