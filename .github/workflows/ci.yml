@@ -62,7 +62,7 @@ jobs:
       contents: write # Crucial: Grant write permission to push changes back to the repository
 
     steps:
-      - name: Checkout GitOps repository
+      - name: Checkout gitops/dev repository
         uses: actions/checkout@v4 # Use the same latest stable version for consistency
         # The GITHUB_TOKEN is automatically provided and has permissions based on the 'permissions' key above.
         # No need to explicitly pass 'token: ${{ secrets.GITHUB_TOKEN }}' here.
@@ -76,7 +76,7 @@ jobs:
 
           # Navigate to your GitOps folder
           # Make sure this path ('GitOps') matches your actual repository structure
-          cd GitOps
+          cd gitops/dev
 
           # Use 'sed' to find and replace the image tag in deployment.yaml.
           # This regex assumes your image line looks like:
