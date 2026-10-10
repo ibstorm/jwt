@@ -74,9 +74,64 @@ jobs:
           IMAGE_SHA="${{ needs.build-and-push.outputs.short_sha }}"
           echo "Debug: Updating deployment.yaml with image tag: $IMAGE_SHA"
 
-          # Navigate to your GitOps folder
+          # Navigate to your GitOps folder, creating it if it doesn't exist
           # Make sure this path ('gitops/dev') matches your actual repository structure
+          mkdir -p gitops/dev
           cd gitops/dev
+
+          # If deployment.yaml is missing, generate a default manifest.
+          # The 'sed' below then sets the image tag as usual.
+          if [ ! -f deployment.yaml ]; then
+            echo "Debug: deployment.yaml not found, creating a default one"
+            cat > deployment.yaml <<EOF
+          ---
+          # 1) Create the Namespace
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: jwt
+
+          ---
+          # 2) Create the Deployment
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: jwt-deployment
+            namespace: jwt
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: jwt
+            template:
+              metadata:
+                labels:
+                  app: jwt
+              spec:
+                containers:
+                  - name: jwt-container
+                    image: ${{ secrets.DOCKER_USERNAME }}/jwt:$IMAGE_SHA
+                    ports:
+                      - containerPort: 80
+
+          ---
+          # 3) Create the Service (LoadBalancer)
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: jwt-service
+            namespace: jwt
+          spec:
+            selector:
+              app: jwt
+            type: LoadBalancer
+            ports:
+              - port: 80          # Internal cluster port
+                targetPort: 3000    # Container port
+                protocol: TCP
+            loadBalancerIP: 192.168.2.203  # Ensure this IP is in MetalLB's range
+          EOF
+          fi
 
           # Use 'sed' to find and replace the image tag in deployment.yaml.
           # This regex assumes your image line looks like:
