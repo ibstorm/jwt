@@ -76,7 +76,7 @@ jobs:
 
           # Navigate to your GitOps folder
           # Make sure this path ('GitOps') matches your actual repository structure
-          cd gitops/dev
+          cd GitOps/dev
 
           # Use 'sed' to find and replace the image tag in deployment.yaml.
           # This regex assumes your image line looks like:
