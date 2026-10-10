@@ -25,7 +25,7 @@ spec:
       containers:
         - name: jwt-container
           # Replace with your container image that listens on port 80
-          image: bahajian/jwt:d061dcb
+          image: bahajian/jwt:b24bf46
           ports:
             - containerPort: 80
 
